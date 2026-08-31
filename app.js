@@ -71,6 +71,62 @@ function calculateAmount(totalSupply, decimals) {
     return (totalBigInt * multiplier).toString();
 }
 
+// ============================================================
+// 极简 protobuf 编码器（仅用于 MsgInstantiateContract）
+// 因为 paxi-cosmjs.umd.js 没有把 MsgInstantiateContract 暴露到全局 PaxiCosmJS，
+// 所以这里手工编码 protobuf 字节，再用 PaxiCosmJS.Any 包装。
+// MsgInstantiateContract 字段：
+//   1: sender  (string, wire=2)
+//   2: admin   (string, wire=2, optional)
+//   3: code_id (uint64, wire=0)
+//   4: label   (string, wire=2)
+//   5: msg     (bytes, wire=2)
+//   6: funds   (repeated Coin, wire=2) —— 本工具不附带资金，留空
+// ============================================================
+function concatBytes(arrs) {
+    const total = arrs.reduce((s, a) => s + a.length, 0);
+    const out = new Uint8Array(total);
+    let off = 0;
+    for (const a of arrs) { out.set(a, off); off += a.length; }
+    return out;
+}
+function encodeVarintBytes(n) {
+    let v = BigInt(n);
+    const bytes = [];
+    if (v === 0n) return Uint8Array.of(0);
+    while (v > 0n) {
+        let low = Number(v & 0x7fn);
+        v >>= 7n;
+        if (v > 0n) low |= 0x80;
+        bytes.push(low);
+    }
+    return Uint8Array.from(bytes);
+}
+function encodeTag(fieldNumber, wireType) {
+    return encodeVarintBytes((BigInt(fieldNumber) << 3n) | BigInt(wireType));
+}
+function encodeStringField(fieldNumber, str) {
+    const body = new TextEncoder().encode(str);
+    return concatBytes([encodeTag(fieldNumber, 2), encodeVarintBytes(body.length), body]);
+}
+function encodeBytesField(fieldNumber, bytes) {
+    return concatBytes([encodeTag(fieldNumber, 2), encodeVarintBytes(bytes.length), bytes]);
+}
+function encodeVarintField(fieldNumber, value) {
+    return concatBytes([encodeTag(fieldNumber, 0), encodeVarintBytes(value)]);
+}
+// 手工编码 MsgInstantiateContract，返回原始 protobuf 字节
+function encodeMsgInstantiateContract(sender, admin, codeId, label, msgBytes, funds) {
+    const parts = [];
+    parts.push(encodeStringField(1, sender));
+    if (admin) parts.push(encodeStringField(2, admin));
+    parts.push(encodeVarintField(3, codeId));
+    parts.push(encodeStringField(4, label));
+    parts.push(encodeBytesField(5, msgBytes));
+    // funds（字段6，repeated Coin）—— 本工具不附带资金，跳过
+    return concatBytes(parts);
+}
+
 async function fetchChainId() {
     const res = await fetch(`${RPC}/status`);
     if (!res.ok) throw new Error('获取 chainId 失败');
@@ -289,11 +345,13 @@ async function deployContract() {
                 marketing: walletAddress,
                 logo: { url: params.logo_url }
             };
+            // 按官方 PRC-20 标准：包含 mint 字段，铸造者为部署者钱包，允许后续增发
             msg = {
                 name: params.name,
                 symbol: params.symbol,
                 decimals: params.decimals,
                 initial_balances: initial_balances,
+                mint: { minter: walletAddress },
                 marketing: marketing
             };
             Object.keys(msg).forEach(k => msg[k] === null && delete msg[k]);
@@ -324,18 +382,21 @@ async function deployContract() {
         });
 
         // ---- 2. 构建实例化消息 ----
+        // 注意：paxi-cosmjs.umd.js 未把 MsgInstantiateContract 暴露到 PaxiCosmJS 全局，
+        // 这里手工编码 protobuf 字节，再用已暴露的 PaxiCosmJS.Any 包装。
         const label = `${currentTemplate.name}-${Date.now()}`;
-        const instantiateMsg = PaxiCosmJS.MsgInstantiateContract.fromPartial({
-            sender: walletAddress,
-            admin: null,
-            codeId: BigInt(currentTemplate.codeId),
-            label: label,
-            msg: new TextEncoder().encode(JSON.stringify(msg)),
-            funds: []
-        });
+        const msgJsonBytes = new TextEncoder().encode(JSON.stringify(msg));
+        const instantiateValue = encodeMsgInstantiateContract(
+            walletAddress,  // sender
+            '',             // admin（--no-admin）
+            currentTemplate.codeId, // code_id
+            label,          // label
+            msgJsonBytes,   // msg bytes
+            []              // funds（无）
+        );
         const anyInstantiate = PaxiCosmJS.Any.fromPartial({
             typeUrl: "/cosmwasm.wasm.v1.MsgInstantiateContract",
-            value: PaxiCosmJS.MsgInstantiateContract.encode(instantiateMsg).finish()
+            value: instantiateValue
         });
 
         // ---- 3. 组合消息 ----
@@ -356,9 +417,10 @@ async function deployContract() {
         // ---- 6. 公钥（使用连接时缓存的公钥，避免再次弹窗） ----
         if (!walletPubkey) throw new Error('公钥缺失，请重新连接钱包');
         const pubkeyBytes = walletPubkey;
+        // 按官方 DApp 示例写法
         const pubkeyAny = {
             typeUrl: "/cosmos.crypto.secp256k1.PubKey",
-            value: PaxiCosmJS.PubKey.encode(PaxiCosmJS.PubKey.fromPartial({ key: pubkeyBytes })).finish()
+            value: PaxiCosmJS.PubKey.encode({ key: pubkeyBytes }).finish()
         };
 
         // ---- 7. AuthInfo ----
@@ -493,7 +555,7 @@ async function broadcastTx(base64Tx, label, feeInPAXI, params) {
             <strong>总发行量：</strong>${escapeHtml(params.total_supply || 'N/A')} 枚（全部已发送到你的钱包）<br>
             <strong>手续费：</strong>${escapeHtml(feeInPAXI)} PAXI（已自动扣除）<br>
             <strong>Logo URL：</strong>${escapeHtml(params.logo_url || '无')}<br>
-            <strong>⚠️ 注意：</strong>此代币无铸造者（minter），<span style="color:red;">永不增发</span>，不可更改！
+            <strong>铸造者（minter）：</strong><code>${escapeHtml(walletAddress)}</code>（你可用此地址后续增发）
         `;
     } else {
         resultDiv.innerHTML = `
