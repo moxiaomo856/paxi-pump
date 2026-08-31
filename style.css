@@ -1,0 +1,93 @@
+body {
+    font-family: system-ui, -apple-system, sans-serif;
+    background: #f0f2f5;
+    margin: 0;
+    padding: 20px;
+}
+.container {
+    max-width: 700px;
+    margin: auto;
+    background: white;
+    padding: 30px;
+    border-radius: 20px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+}
+h1 {
+    text-align: center;
+    color: #1a2a3a;
+}
+.wallet-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #eef2f6;
+    padding: 10px 16px;
+    border-radius: 10px;
+}
+#status {
+    font-weight: bold;
+    color: #333;
+}
+.form-group {
+    margin: 20px 0;
+}
+label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 5px;
+    color: #333;
+}
+select, input, textarea {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid #ccc;
+    border-radius: 10px;
+    font-size: 14px;
+    box-sizing: border-box;
+}
+textarea {
+    height: 80px;
+    font-family: monospace;
+}
+button {
+    padding: 12px 30px;
+    border: none;
+    border-radius: 10px;
+    font-size: 16px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: 0.2s;
+}
+#connectBtn {
+    background: #2b6c94;
+    color: white;
+}
+#connectBtn:hover {
+    background: #1a4a6a;
+}
+#deployBtn {
+    background: #28a745;
+    color: white;
+    margin-top: 16px;
+    width: 100%;
+}
+#deployBtn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+#deployBtn:hover:not(:disabled) {
+    background: #1e7e34;
+}
+#result {
+    margin-top: 20px;
+    padding: 16px;
+    background: #e9f7ef;
+    border-radius: 10px;
+    display: none;
+    word-break: break-all;
+    white-space: pre-wrap;
+}
+#feeAmount {
+    font-size: 1.2em;
+    color: #d9534f;
+}

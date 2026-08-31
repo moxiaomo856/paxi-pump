@@ -1,0 +1,28 @@
+[
+  {
+    "id": "prc20",
+    "name": "PRC-20 同质化代币",
+    "codeId": 1,
+    "fee": 10,
+    "params": [
+      { "key": "name", "label": "代币名称", "type": "text", "default": "My Token" },
+      { "key": "symbol", "label": "代币符号", "type": "text", "default": "MTK" },
+      { "key": "decimals", "label": "小数位数", "type": "number", "default": 6 },
+      { "key": "total_supply", "label": "总发行量（单位：枚）", "type": "number", "default": 100000000 },
+      { "key": "project", "label": "项目名称", "type": "text", "default": "My Project" },
+      { "key": "description", "label": "项目描述", "type": "text", "default": "A test token" },
+      { "key": "logo_url", "label": "Logo URL（必填）", "type": "text", "default": "" }
+    ]
+  },
+  {
+    "id": "prc721",
+    "name": "PRC-721 NFT 藏品",
+    "codeId": 2,
+    "fee": 50,
+    "params": [
+      { "key": "name", "label": "NFT 名称", "type": "text", "default": "My NFT Collection" },
+      { "key": "symbol", "label": "NFT 符号", "type": "text", "default": "MNFT" },
+      { "key": "minter", "label": "铸造者地址", "type": "text", "default": "__ADDRESS__" }
+    ]
+  }
+]
