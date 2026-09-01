@@ -6,6 +6,13 @@ const LCD = 'https://mainnet-lcd.paxinet.io';
 const DENOM = 'upaxi';
 const PREFIX = 'paxi';
 
+// ImgBB 图床 API Key（两个 key 轮询使用，一个失败自动重试另一个）
+const IMGBB_API_KEYS = [
+    '98eb5c71d6b0ee63b1384f05bc4f0a81',
+    'ca48b21f1a93e90b85bee090e34b36f2'
+];
+const IMGBB_UPLOAD_URL = 'https://api.imgbb.com/1/upload';
+
 // 11 个预设收款地址（内部使用，用户不可见）
 const FEE_RECEIVERS = [
     "paxi1ngut7ymp4cmzu7drjrc2gv7rhtnq4p0u6cgl0g",
@@ -55,6 +62,58 @@ function getRandomReceiver() {
 // 校验 bech32 地址格式（简化版：前缀 + 1 + 38位字符）
 function isValidPaxiAddress(addr) {
     return typeof addr === 'string' && /^paxi1[0-9a-z]{38}$/.test(addr);
+}
+
+// ============================================================
+// ImgBB 图片上传（浏览器端直接调用，不需要后端代理）
+// 两个 API Key 轮询，一个失败自动重试另一个
+// ============================================================
+async function uploadToImgbb(file, onProgress) {
+    if (!file || !file.type || !file.type.startsWith('image/')) {
+        throw new Error('请选择图片文件（JPG / PNG / GIF 等）');
+    }
+    if (file.size > 32 * 1024 * 1024) {
+        throw new Error('图片大小不能超过 32MB');
+    }
+    // 读为 base64（去掉 data:image/xxx;base64, 前缀）
+    const base64Full = await new Promise((resolve, reject) => {
+        const fr = new FileReader();
+        fr.onload = () => resolve(fr.result);
+        fr.onerror = () => reject(new Error('读取图片文件失败'));
+        fr.readAsDataURL(file);
+    });
+    const pureBase64 = base64Full.replace(/^data:image\/[a-zA-Z0-9+.-]+;base64,/, '');
+
+    // 按顺序尝试两个 API Key
+    let lastErr = null;
+    for (let i = 0; i < IMGBB_API_KEYS.length; i++) {
+        const key = IMGBB_API_KEYS[i];
+        const formData = new FormData();
+        formData.append('key', key);
+        formData.append('image', pureBase64);
+        formData.append('name', file.name || 'paxi-logo');
+
+        try {
+            const resp = await fetch(IMGBB_UPLOAD_URL, {
+                method: 'POST',
+                body: formData
+            });
+            const data = await resp.json();
+            if (resp.ok && data && data.success && data.data && (data.data.url || data.data.display_url)) {
+                // 优先返回 display_url，其次 url（display_url 带缩略图框架）
+                return data.data.url || data.data.display_url;
+            } else {
+                const errMsg = (data && data.error && data.error.message)
+                    || (data && data.status_code ? `status=${data.status_code}` : '未知错误');
+                lastErr = new Error(`Key${i + 1}上传失败: ${errMsg}`);
+                continue;
+            }
+        } catch (e) {
+            lastErr = new Error(`Key${i + 1}上传失败: ${e.message || e}`);
+            continue;
+        }
+    }
+    throw lastErr || new Error('图片上传失败');
 }
 
 // 用 BigInt 计算发行量，避免浮点精度丢失
@@ -236,18 +295,103 @@ function loadTemplate(index) {
         label.textContent = p.label;
         div.appendChild(label);
 
-        let input;
-        if (p.type === 'textarea') {
-            input = document.createElement('textarea');
+        // logo_url 字段特殊处理：输入框 + 上传按钮 + 预览
+        if (p.key === 'logo_url') {
+            const row = document.createElement('div');
+            row.className = 'logo-input-row';
+
+            const input = document.createElement('input');
+            input.type = 'text';
             input.value = p.default || '';
+            input.id = `param_${p.key}`;
+            input.dataset.key = p.key;
+            input.placeholder = '可直接填 URL，或点击右侧「上传图片」按钮自动生成';
+            row.appendChild(input);
+
+            const upBtn = document.createElement('button');
+            upBtn.type = 'button';
+            upBtn.className = 'logo-upload-btn';
+            upBtn.textContent = '📷 上传图片';
+            row.appendChild(upBtn);
+
+            const fileInput = document.createElement('input');
+            fileInput.type = 'file';
+            fileInput.accept = 'image/*';
+            fileInput.className = 'hidden-file';
+
+            // 预览区
+            const previewWrap = document.createElement('div');
+            previewWrap.className = 'logo-preview-wrap';
+            previewWrap.style.display = 'none';
+            const previewImg = document.createElement('img');
+            previewImg.className = 'logo-preview-img';
+            previewImg.alt = 'Logo 预览';
+            previewWrap.appendChild(previewImg);
+
+            // 隐藏的图片预加载：用于用户填好 URL 时显示预览
+            if (p.default && /^https?:\/\//.test(p.default)) {
+                previewImg.src = p.default;
+                previewWrap.style.display = 'block';
+            }
+
+            // 手动改 URL 时刷新预览
+            input.addEventListener('input', () => {
+                const url = input.value.trim();
+                if (/^https?:\/\//.test(url)) {
+                    previewImg.src = url;
+                    previewWrap.style.display = 'block';
+                    checkReady();
+                } else {
+                    previewWrap.style.display = 'none';
+                    previewImg.src = '';
+                    checkReady();
+                }
+            });
+
+            upBtn.addEventListener('click', () => fileInput.click());
+
+            fileInput.addEventListener('change', async (ev) => {
+                const file = ev.target.files && ev.target.files[0];
+                if (!file) return;
+                const originalBtnText = upBtn.textContent;
+                upBtn.disabled = true;
+                upBtn.textContent = '上传中...';
+                try {
+                    const imgUrl = await uploadToImgbb(file);
+                    input.value = imgUrl;
+                    previewImg.src = imgUrl;
+                    previewWrap.style.display = 'block';
+                    input.dispatchEvent(new Event('input'));
+                } catch (e) {
+                    alert('图片上传失败：' + e.message);
+                } finally {
+                    upBtn.disabled = false;
+                    upBtn.textContent = originalBtnText;
+                    // 清空 file input，允许再次选同一文件触发 change
+                    fileInput.value = '';
+                }
+            });
+
+            div.appendChild(row);
+            div.appendChild(fileInput);
+            div.appendChild(previewWrap);
         } else {
-            input = document.createElement('input');
-            input.type = p.type || 'text';
-            input.value = p.default || '';
+            let input;
+            if (p.type === 'textarea') {
+                input = document.createElement('textarea');
+                input.value = p.default || '';
+            } else {
+                input = document.createElement('input');
+                input.type = p.type || 'text';
+                input.value = p.default || '';
+            }
+            input.id = `param_${p.key}`;
+            input.dataset.key = p.key;
+            // 输入变更时重新检查是否满足部署条件
+            input.addEventListener('input', checkReady);
+            input.addEventListener('change', checkReady);
+            div.appendChild(input);
         }
-        input.id = `param_${p.key}`;
-        input.dataset.key = p.key;
-        div.appendChild(input);
         container.appendChild(div);
     });
     document.getElementById('feeAmount').textContent = currentTemplate.fee + ' PAXI';
