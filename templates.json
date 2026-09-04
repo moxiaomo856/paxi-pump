@@ -3,7 +3,7 @@
     "id": "prc20",
     "name": "PRC-20 同质化代币",
     "codeId": 1,
-    "fee": 10,
+    "fee": 15,
     "params": [
       { "key": "name", "label": "代币名称", "type": "text", "default": "My Token" },
       { "key": "symbol", "label": "代币符号", "type": "text", "default": "MTK" },

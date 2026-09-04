@@ -1,39 +1,48 @@
 <!DOCTYPE html>
-<html lang="zh">
+<html lang="zh-CN">
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Paxi 合约一键部署</title>
+    <title data-i18n="pageTitle">Paxi 合约一键部署</title>
     <link rel="stylesheet" href="style.css" />
 </head>
 <body>
     <div class="container">
-        <h1>🚀 Paxi 合约一键部署</h1>
+        <!-- 右上角语言切换按钮 -->
+        <button id="langToggleBtn" class="lang-toggle" type="button"
+            aria-label="切换语言" data-i18n-aria="statusAria"
+            data-i18n-title="langToggleTitle" data-i18n-text="langToggleLabel">
+            EN
+        </button>
+
+        <h1 data-i18n="pageHeading">🚀 Paxi 合约一键部署</h1>
         <div class="wallet-bar">
-            <span id="status">未连接</span>
-            <button id="connectBtn">连接钱包</button>
+            <span id="status" data-i18n="walletDisconnected">未连接</span>
+            <button id="connectBtn" data-i18n="connectBtn">连接钱包</button>
         </div>
 
         <div class="form-group">
-            <label>选择模板</label>
+            <label data-i18n="templateLabel">选择模板</label>
             <select id="templateSelect"></select>
         </div>
 
         <!-- 显示费用，但不显示收款地址 -->
         <div class="form-group" id="feeDisplay">
-            <label>部署费用</label>
+            <label data-i18n="feeLabel">部署费用</label>
             <span id="feeAmount" style="font-weight: bold; color: #d9534f;">-</span>
         </div>
 
         <div id="paramsArea"></div>
 
-        <button id="deployBtn" disabled>部署合约</button>
+        <button id="deployBtn" disabled data-i18n="deployBtn">部署合约</button>
 
         <div id="result" class="result"></div>
     </div>
 
     <!-- 官方 Paxi 库 -->
     <script src="https://mainnet-api.paxinet.io/resources/js/paxi-cosmjs.umd.js"></script>
+    <!-- 多语言字典 -->
+    <script src="i18n.js"></script>
     <script src="app.js"></script>
 </body>
 </html>

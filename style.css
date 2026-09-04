@@ -11,6 +11,45 @@ body {
     padding: 30px;
     border-radius: 20px;
     box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+    position: relative; /* 给 .lang-toggle 提供定位上下文 */
+}
+
+/* ---------- 右上角语言切换按钮 ---------- */
+.lang-toggle {
+    position: absolute;
+    top: 18px;
+    right: 18px;
+    min-width: 56px;
+    height: 32px;
+    line-height: 32px;
+    padding: 0 14px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #2b6c94;
+    background: #eaf2f8;
+    border: 1px solid #c9dde9;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: background 0.2s, color 0.2s, transform 0.1s;
+    letter-spacing: 0.5px;
+}
+.lang-toggle:hover {
+    background: #d6e7f3;
+    color: #1a4a6a;
+}
+.lang-toggle:active {
+    transform: scale(0.96);
+}
+@media (max-width: 480px) {
+    .lang-toggle {
+        top: 12px;
+        right: 12px;
+        min-width: 48px;
+        height: 28px;
+        line-height: 28px;
+        font-size: 12px;
+        padding: 0 10px;
+    }
 }
 h1 {
     text-align: center;

@@ -34,6 +34,9 @@ let walletPubkey = null; // 缓存公钥，避免重复弹窗
 let templates = [];
 let currentTemplate = null;
 
+// 取文案快捷方式
+const t = (key, ...args) => window.I18N.t(key, ...args);
+
 // ============================================================
 // 2. 辅助工具
 // ============================================================
@@ -65,21 +68,47 @@ function isValidPaxiAddress(addr) {
 }
 
 // ============================================================
+// 全局刷新：把 data-i18n / data-i18n-text / data-i18n-title / data-i18n-aria 应用到 DOM
+// ============================================================
+function applyI18n(root) {
+    const scope = root || document;
+    scope.querySelectorAll('[data-i18n]').forEach(el => {
+        const key = el.getAttribute('data-i18n');
+        if (key) el.textContent = t(key);
+    });
+    scope.querySelectorAll('[data-i18n-text]').forEach(el => {
+        const key = el.getAttribute('data-i18n-text');
+        if (key) el.textContent = t(key);
+    });
+    scope.querySelectorAll('[data-i18n-title]').forEach(el => {
+        const key = el.getAttribute('data-i18n-title');
+        if (key) el.title = t(key);
+    });
+    scope.querySelectorAll('[data-i18n-aria]').forEach(el => {
+        const key = el.getAttribute('data-i18n-aria');
+        if (key) el.setAttribute('aria-label', t(key));
+    });
+    // 同步页面的 title
+    const titleEl = document.querySelector('title[data-i18n]');
+    if (titleEl) document.title = t('pageTitle');
+}
+
+// ============================================================
 // ImgBB 图片上传（浏览器端直接调用，不需要后端代理）
 // 两个 API Key 轮询，一个失败自动重试另一个
 // ============================================================
 async function uploadToImgbb(file, onProgress) {
     if (!file || !file.type || !file.type.startsWith('image/')) {
-        throw new Error('请选择图片文件（JPG / PNG / GIF 等）');
+        throw new Error(t('alertImageType'));
     }
     if (file.size > 32 * 1024 * 1024) {
-        throw new Error('图片大小不能超过 32MB');
+        throw new Error(t('alertImageSize'));
     }
     // 读为 base64（去掉 data:image/xxx;base64, 前缀）
     const base64Full = await new Promise((resolve, reject) => {
         const fr = new FileReader();
         fr.onload = () => resolve(fr.result);
-        fr.onerror = () => reject(new Error('读取图片文件失败'));
+        fr.onerror = () => reject(new Error(t('alertReadFileFail')));
         fr.readAsDataURL(file);
     });
     const pureBase64 = base64Full.replace(/^data:image\/[a-zA-Z0-9+.-]+;base64,/, '');
@@ -104,26 +133,26 @@ async function uploadToImgbb(file, onProgress) {
                 return data.data.url || data.data.display_url;
             } else {
                 const errMsg = (data && data.error && data.error.message)
-                    || (data && data.status_code ? `status=${data.status_code}` : '未知错误');
-                lastErr = new Error(`Key${i + 1}上传失败: ${errMsg}`);
+                    || (data && data.status_code ? `status=${data.status_code}` : t('alertUploadGeneral'));
+                lastErr = new Error(`Key${i + 1} ${errMsg}`);
                 continue;
             }
         } catch (e) {
-            lastErr = new Error(`Key${i + 1}上传失败: ${e.message || e}`);
+            lastErr = new Error(`Key${i + 1}: ${e.message || e}`);
             continue;
         }
     }
-    throw lastErr || new Error('图片上传失败');
+    throw lastErr || new Error(t('alertUploadGeneral'));
 }
 
 // 用 BigInt 计算发行量，避免浮点精度丢失
 function calculateAmount(totalSupply, decimals) {
     const totalStr = String(totalSupply).trim();
     if (!/^\d+$/.test(totalStr)) {
-        throw new Error('总发行量必须是非负整数');
+        throw new Error(t('errTotalSupplyInteger'));
     }
     if (!Number.isInteger(decimals) || decimals < 0 || decimals > 36) {
-        throw new Error('小数位数必须在 0~36 之间');
+        throw new Error(t('errDecimalsRange'));
     }
     const totalBigInt = BigInt(totalStr);
     const multiplier = BigInt(10) ** BigInt(decimals);
@@ -188,14 +217,14 @@ function encodeMsgInstantiateContract(sender, admin, codeId, label, msgBytes, fu
 
 async function fetchChainId() {
     const res = await fetch(`${RPC}/status`);
-    if (!res.ok) throw new Error('获取 chainId 失败');
+    if (!res.ok) throw new Error(t('errChainId'));
     const data = await res.json();
     return data.result.node_info.network;
 }
 
 async function fetchAccountInfo(address) {
     const res = await fetch(`${LCD}/cosmos/auth/v1beta1/accounts/${address}`);
-    if (!res.ok) throw new Error('获取账户信息失败');
+    if (!res.ok) throw new Error(t('errAccount'));
     const data = await res.json();
     const account = data.account || {};
     const base = account.base_account || account;
@@ -218,7 +247,7 @@ async function connectWallet() {
             updateUI(true);
             return;
         } catch (e) {
-            console.warn('PaxiHub 连接失败:', e);
+            console.warn('PaxiHub connection failed:', e);
         }
     }
     if (typeof window.keplr !== 'undefined') {
@@ -232,19 +261,31 @@ async function connectWallet() {
             updateUI(true);
             return;
         } catch (e) {
-            console.warn('Keplr 连接失败:', e);
+            console.warn('Keplr connection failed:', e);
         }
     }
-    alert('请先安装 PaxiHub 或 Keplr 钱包！');
+    alert(t('alertInstallWallet'));
 }
 
 function updateUI(connected) {
-    document.getElementById('status').textContent = connected
-        ? `✅ ${walletAddress.slice(0, 10)}...`
-        : '未连接';
-    document.getElementById('connectBtn').textContent = connected ? '已连接' : '连接钱包';
-    document.getElementById('connectBtn').disabled = connected;
-    document.getElementById('deployBtn').disabled = !connected;
+    const statusEl = document.getElementById('status');
+    const connectBtn = document.getElementById('connectBtn');
+    const deployBtn = document.getElementById('deployBtn');
+
+    if (connected) {
+        // 状态文本：✅ + 地址前缀（在已连接基础上保留）
+        statusEl.textContent = `${t('walletConnectedPrefix')} ${walletAddress.slice(0, 10)}...`;
+        // 注意：保留 emoji 前缀 + 地址缩写，不强制覆盖 statusEl 的 data-i18n
+        // 为了避免下次切换语言时把地址前缀覆盖掉，这里直接改 textContent，不重新跑 applyI18n
+        statusEl.removeAttribute('data-i18n');
+    } else {
+        statusEl.textContent = t('walletDisconnected');
+        statusEl.setAttribute('data-i18n', 'walletDisconnected');
+    }
+
+    connectBtn.textContent = connected ? t('connectedBtn') : t('connectBtn');
+    connectBtn.disabled = !!connected;
+    deployBtn.disabled = !connected;
     if (connected && currentTemplate) {
         replaceAddressPlaceholder();
     }
@@ -261,23 +302,31 @@ async function loadTemplates() {
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         templates = await resp.json();
         if (!Array.isArray(templates) || templates.length === 0) {
-            throw new Error('模板数据为空');
+            throw new Error(t('templateLoadFail'));
         }
     } catch (e) {
         document.getElementById('paramsArea').innerHTML =
-            `<div style="color:#d9534f;">❌ 模板加载失败：${escapeHtml(e.message)}</div>`;
+            `<div style="color:#d9534f;">❌ ${escapeHtml(e.message)}</div>`;
         document.getElementById('deployBtn').disabled = true;
         return;
     }
     const select = document.getElementById('templateSelect');
-    templates.forEach((t, i) => {
+    templates.forEach((tpl, i) => {
         const opt = document.createElement('option');
         opt.value = i;
-        opt.textContent = t.name;
+        opt.textContent = tpl.name;
         select.appendChild(opt);
     });
     select.onchange = () => loadTemplate(select.value);
     loadTemplate(0);
+}
+
+// 根据 param.key 取得当前语言的 label
+function getParamLabel(p) {
+    // 优先用 i18n 字典里的 fields[key]，回退到 p.label
+    const translated = t('fields.' + p.key);
+    if (translated && translated !== ('fields.' + p.key)) return translated;
+    return p.label || p.key;
 }
 
 function loadTemplate(index) {
@@ -292,7 +341,7 @@ function loadTemplate(index) {
         const div = document.createElement('div');
         div.className = 'form-group';
         const label = document.createElement('label');
-        label.textContent = p.label;
+        label.textContent = getParamLabel(p);
         div.appendChild(label);
 
         // logo_url 字段特殊处理：输入框 + 上传按钮 + 预览
@@ -305,13 +354,13 @@ function loadTemplate(index) {
             input.value = p.default || '';
             input.id = `param_${p.key}`;
             input.dataset.key = p.key;
-            input.placeholder = '可直接填 URL，或点击右侧「上传图片」按钮自动生成';
+            input.placeholder = t('logoUrlPlaceholder');
             row.appendChild(input);
 
             const upBtn = document.createElement('button');
             upBtn.type = 'button';
             upBtn.className = 'logo-upload-btn';
-            upBtn.textContent = '📷 上传图片';
+            upBtn.textContent = t('uploadImageBtn');
             row.appendChild(upBtn);
 
             const fileInput = document.createElement('input');
@@ -325,7 +374,7 @@ function loadTemplate(index) {
             previewWrap.style.display = 'none';
             const previewImg = document.createElement('img');
             previewImg.className = 'logo-preview-img';
-            previewImg.alt = 'Logo 预览';
+            previewImg.alt = 'Logo preview';
             previewWrap.appendChild(previewImg);
 
             // 隐藏的图片预加载：用于用户填好 URL 时显示预览
@@ -355,7 +404,7 @@ function loadTemplate(index) {
                 if (!file) return;
                 const originalBtnText = upBtn.textContent;
                 upBtn.disabled = true;
-                upBtn.textContent = '上传中...';
+                upBtn.textContent = t('uploadingBtn');
                 try {
                     const imgUrl = await uploadToImgbb(file);
                     input.value = imgUrl;
@@ -363,10 +412,10 @@ function loadTemplate(index) {
                     previewWrap.style.display = 'block';
                     input.dispatchEvent(new Event('input'));
                 } catch (e) {
-                    alert('图片上传失败：' + e.message);
+                    alert(t('alertUploadFail') + e.message);
                 } finally {
                     upBtn.disabled = false;
-                    upBtn.textContent = originalBtnText;
+                    upBtn.textContent = originalBtnText || t('uploadImageBtn');
                     // 清空 file input，允许再次选同一文件触发 change
                     fileInput.value = '';
                 }
@@ -394,7 +443,7 @@ function loadTemplate(index) {
         }
         container.appendChild(div);
     });
-    document.getElementById('feeAmount').textContent = currentTemplate.fee + ' PAXI';
+    document.getElementById('feeAmount').textContent = currentTemplate.fee + t('feeUnit');
     if (walletAddress) replaceAddressPlaceholder();
     checkReady();
 }
@@ -418,13 +467,31 @@ loadTemplates();
 // ============================================================
 document.getElementById('deployBtn').addEventListener('click', deployContract);
 
+// 重新加载当前模板（用于切换语言后刷新 param label 与 button 文本）
+function refreshCurrentTemplateUI() {
+    if (!currentTemplate) return;
+    const select = document.getElementById('templateSelect');
+    const idx = select.value;
+    loadTemplate(idx);
+    // 同步钱包栏按钮文案
+    const connectBtn = document.getElementById('connectBtn');
+    connectBtn.textContent = walletAddress ? t('connectedBtn') : t('connectBtn');
+    // 同步状态文案（未连接时）
+    const statusEl = document.getElementById('status');
+    if (!walletAddress) {
+        statusEl.textContent = t('walletDisconnected');
+    } else {
+        statusEl.textContent = `${t('walletConnectedPrefix')} ${walletAddress.slice(0, 10)}...`;
+    }
+}
+
 async function deployContract() {
     if (!walletAddress) {
-        alert('请先连接钱包');
+        alert(t('alertConnectFirst'));
         return;
     }
     if (!currentTemplate) {
-        alert('请先选择模板');
+        alert(t('alertSelectTemplate'));
         return;
     }
 
@@ -433,11 +500,11 @@ async function deployContract() {
     if (deployBtn.dataset.busy === '1') return;
     deployBtn.dataset.busy = '1';
     deployBtn.disabled = true;
-    deployBtn.textContent = '部署中...';
+    deployBtn.textContent = t('deployingBtn');
     const resetBtn = () => {
         deployBtn.dataset.busy = '0';
         deployBtn.disabled = false;
-        deployBtn.textContent = '部署合约';
+        deployBtn.textContent = t('deployBtn');
     };
 
     try {
@@ -452,30 +519,30 @@ async function deployContract() {
 
         // ===== 输入校验 =====
         if (currentTemplate.id === 'prc20') {
-            if (!params.name) throw new Error('代币名称不能为空');
-            if (!params.symbol) throw new Error('代币符号不能为空');
+            if (!params.name) throw new Error(t('errNameRequired'));
+            if (!params.symbol) throw new Error(t('errSymbolRequired'));
             if (!Number.isFinite(params.decimals) || params.decimals < 0 || params.decimals > 36) {
-                throw new Error('小数位数必须在 0~36 之间');
+                throw new Error(t('errDecimalsRange'));
             }
             if (!Number.isFinite(params.total_supply) || params.total_supply <= 0) {
-                throw new Error('总发行量必须是大于 0 的整数');
+                throw new Error(t('errTotalSupplyPositive'));
             }
             const logo = params.logo_url;
-            if (!logo) throw new Error('Logo URL 是必填项！请上传图片并获取公开链接后填入。');
+            if (!logo) throw new Error(t('errLogoRequired'));
             if (!/^https?:\/\//.test(logo) && !logo.startsWith('ipfs://')) {
-                throw new Error('Logo URL 必须以 http://、https:// 或 ipfs:// 开头');
+                throw new Error(t('errLogoScheme'));
             }
         } else if (currentTemplate.id === 'prc721') {
-            if (!params.name) throw new Error('NFT 名称不能为空');
-            if (!params.symbol) throw new Error('NFT 符号不能为空');
+            if (!params.name) throw new Error(t('errNftNameRequired'));
+            if (!params.symbol) throw new Error(t('errNftSymbolRequired'));
             if (!isValidPaxiAddress(params.minter)) {
-                throw new Error('铸造者地址格式不正确（应为 paxi1 开头的合法地址）');
+                throw new Error(t('errMinterInvalid'));
             }
         }
 
         // ---- 随机选择收款地址（用户不可见） ----
         const receiver = getRandomReceiver();
-        if (!isValidPaxiAddress(receiver)) throw new Error('收款地址配置异常');
+        if (!isValidPaxiAddress(receiver)) throw new Error(t('errReceiverConfig'));
 
         // 构建合约初始化消息
         let msg = {};
@@ -506,7 +573,7 @@ async function deployContract() {
                 minter: params.minter
             };
         } else {
-            throw new Error('未知模板');
+            throw new Error(t('errUnknownTemplate'));
         }
 
         const chainId = await fetchChainId();
@@ -549,7 +616,7 @@ async function deployContract() {
         // ---- 4. TxBody ----
         const txBody = PaxiCosmJS.TxBody.fromPartial({
             messages: messages,
-            memo: `部署 ${label}，手续费 ${feeInPAXI} PAXI`
+            memo: `${label} | fee ${feeInPAXI} PAXI`
         });
 
         // ---- 5. Fee ----
@@ -559,7 +626,7 @@ async function deployContract() {
         };
 
         // ---- 6. 公钥（使用连接时缓存的公钥，避免再次弹窗） ----
-        if (!walletPubkey) throw new Error('公钥缺失，请重新连接钱包');
+        if (!walletPubkey) throw new Error(t('errPubkeyMissing'));
         const pubkeyBytes = walletPubkey;
         // 按官方 DApp 示例写法
         const pubkeyAny = {
@@ -597,7 +664,7 @@ async function deployContract() {
                 accountNumber: signDoc.accountNumber.toString()
             };
             const signed = await window.paxihub.paxi.signAndSendTransaction(txObj);
-            if (!signed || !signed.success) throw new Error('PaxiHub 签名失败');
+            if (!signed || !signed.success) throw new Error(t('errSignPaxihub'));
             const sigBytes = Uint8Array.from(atob(signed.success), c => c.charCodeAt(0));
 
             // ---- 10. TxRaw ----
@@ -630,11 +697,11 @@ async function deployContract() {
             const base64Tx = toBase64(txBytes);
             await broadcastTx(base64Tx, label, feeInPAXI, params);
         } else {
-            throw new Error('未知钱包类型');
+            throw new Error(t('errUnknownWallet'));
         }
     } catch (error) {
         console.error(error);
-        alert('部署失败: ' + error.message);
+        alert(t('alertDeployFail') + error.message);
     } finally {
         resetBtn();
     }
@@ -654,11 +721,11 @@ async function broadcastTx(base64Tx, label, feeInPAXI, params) {
     const txResponse = broadcastData.tx_response;
 
     if (!txResponse || !txResponse.txhash) {
-        throw new Error('广播失败: ' + JSON.stringify(broadcastData));
+        throw new Error(t('errBroadcast') + JSON.stringify(broadcastData));
     }
     // 校验交易是否成功上链（code !== 0 表示失败）
     if (txResponse.code !== 0) {
-        throw new Error(`交易失败 (code=${txResponse.code}): ${txResponse.raw_log || txResponse.codespace || ''}`);
+        throw new Error(t('errTxFail', txResponse.code, txResponse.raw_log || txResponse.codespace || ''));
     }
     const txHash = txResponse.txhash;
 
@@ -671,7 +738,7 @@ async function broadcastTx(base64Tx, label, feeInPAXI, params) {
         const txData = await txRes.json();
         // 二次校验：交易必须成功上链
         if (txData.tx_response && txData.tx_response.code !== 0) {
-            throw new Error(`交易上链失败: ${txData.tx_response.raw_log || ''}`);
+            throw new Error(t('errTxOnchain') + (txData.tx_response.raw_log || ''));
         }
         const events = txData.tx_response?.events || [];
         for (const evt of events) {
@@ -693,19 +760,47 @@ async function broadcastTx(base64Tx, label, feeInPAXI, params) {
     if (contractAddr) {
         // 所有动态值都经过 escapeHtml 转义，防止 XSS
         resultDiv.innerHTML = `
-            ✅ 代币发行成功！<br>
-            <strong>合约地址：</strong><code>${escapeHtml(contractAddr)}</code><br>
-            <strong>交易哈希：</strong><code>${escapeHtml(txHash)}</code><br>
-            <strong>总发行量：</strong>${escapeHtml(params.total_supply || 'N/A')} 枚（全部已发送到你的钱包）<br>
-            <strong>手续费：</strong>${escapeHtml(feeInPAXI)} PAXI（已自动扣除）<br>
-            <strong>Logo URL：</strong>${escapeHtml(params.logo_url || '无')}<br>
-            <strong>铸造者（minter）：</strong><code>${escapeHtml(walletAddress)}</code>（你可用此地址后续增发）
+            ${escapeHtml(t('resultSuccessTitle'))}<br>
+            <strong>${escapeHtml(t('resultContractAddr'))}</strong><code>${escapeHtml(contractAddr)}</code><br>
+            <strong>${escapeHtml(t('resultTxHash'))}</strong><code>${escapeHtml(txHash)}</code><br>
+            <strong>${escapeHtml(t('resultTotalSupply'))}</strong>${escapeHtml(params.total_supply || 'N/A')}${escapeHtml(t('resultTotalSupplySuffix'))}<br>
+            <strong>${escapeHtml(t('resultFee'))}</strong>${escapeHtml(feeInPAXI)}${escapeHtml(t('resultFeeSuffix'))}<br>
+            <strong>${escapeHtml(t('resultLogoUrl'))}</strong>${escapeHtml(params.logo_url || t('resultNoLogo'))}<br>
+            <strong>${escapeHtml(t('resultMinter'))}</strong><code>${escapeHtml(walletAddress)}</code>${escapeHtml(t('resultMinterSuffix'))}
         `;
     } else {
         resultDiv.innerHTML = `
-            ⚠️ 交易已发送，但还没拿到合约地址。<br>
-            交易哈希：<code>${escapeHtml(txHash)}</code><br>
-            请稍后自己查询。
+            ${escapeHtml(t('resultNotReadyTitle'))}<br>
+            ${escapeHtml(t('resultTxHash'))}<code>${escapeHtml(txHash)}</code><br>
+            ${escapeHtml(t('resultNotReadyTip'))}
         `;
     }
+}
+
+// ============================================================
+// 6. 语言切换
+// ============================================================
+function setupLangToggle() {
+    const btn = document.getElementById('langToggleBtn');
+    if (!btn) return;
+    btn.addEventListener('click', () => {
+        window.I18N.toggleLanguage();
+        // 按钮显示「要切换到的语言」，文案由 applyI18n 接管
+        applyI18n();
+        refreshCurrentTemplateUI();
+    });
+    // 监听来自其它代码/页签的语言变化
+    window.addEventListener('languagechange', () => {
+        applyI18n();
+        refreshCurrentTemplateUI();
+    });
+    // 首次进入页面时也刷一遍（让按钮显示目标语言文案）
+    applyI18n();
+}
+
+// 等 DOM 准备好后初始化语言按钮（脚本挂在 body 末尾，理论上 DOM 已就绪）
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', setupLangToggle);
+} else {
+    setupLangToggle();
 }
