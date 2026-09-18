@@ -620,9 +620,10 @@ async function deployContract() {
         });
 
         // ---- 5. Fee ----
+        // gasLimit 需要足够覆盖 wasm instantiate 的开销（实测约 7000 万）
         const fee = {
-            amount: [PaxiCosmJS.coins("6000000", DENOM)[0]],
-            gasLimit: 1000000
+            amount: [PaxiCosmJS.coins("10000000", DENOM)[0]],
+            gasLimit: 150000000
         };
 
         // ---- 6. 公钥（使用连接时缓存的公钥，避免再次弹窗） ----
