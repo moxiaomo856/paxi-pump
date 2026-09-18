@@ -553,6 +553,7 @@ async function deployContract() {
             const marketing = {
                 project: params.project || '',
                 description: params.description || '',
+                website: params.website || '',
                 marketing: walletAddress,
                 logo: { url: params.logo_url }
             };

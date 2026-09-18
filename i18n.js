@@ -56,8 +56,9 @@
                 symbol: '代币符号',
                 decimals: '小数位数',
                 total_supply: '总发行量（单位：枚）',
+                website: '网站网址',
                 project: '项目名称',
-                description: '项目描述',
+                description: '代币描述',
                 logo_url: 'Logo URL（必填）',
                 minter: '铸造者地址'
             },
@@ -134,8 +135,9 @@
                 symbol: 'Token Symbol',
                 decimals: 'Decimals',
                 total_supply: 'Total Supply (units)',
+                website: 'Website URL',
                 project: 'Project Name',
-                description: 'Project Description',
+                description: 'Token Description',
                 logo_url: 'Logo URL (required)',
                 minter: 'Minter Address'
             },
