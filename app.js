@@ -532,6 +532,10 @@ async function deployContract() {
             if (!/^https?:\/\//.test(logo) && !logo.startsWith('ipfs://')) {
                 throw new Error(t('errLogoScheme'));
             }
+            // 项目名称（填写网址）：选填，但填写时必须是合法网址
+            if (params.project && !/^https?:\/\//.test(params.project)) {
+                throw new Error(t('errProjectUrl'));
+            }
         } else if (currentTemplate.id === 'prc721') {
             if (!params.name) throw new Error(t('errNftNameRequired'));
             if (!params.symbol) throw new Error(t('errNftSymbolRequired'));
@@ -550,14 +554,15 @@ async function deployContract() {
             // 用 BigInt 计算避免浮点精度丢失
             const amount = calculateAmount(params.total_supply, params.decimals);
             const initial_balances = [{ address: walletAddress, amount: amount }];
+            // 项目名称与网站网址已合并为一个字段（project），统一填项目官网地址
             const marketing = {
                 project: params.project || '',
                 description: params.description || '',
-                website: params.website || '',
                 marketing: walletAddress,
                 logo: { url: params.logo_url }
             };
-            // 按官方 PRC-20 标准：包含 mint 字段，铸造者为部署者钱包，允许后续增发
+            // 按官方 PRC-20 标准：包含 mint 字段（铸造者为部署者钱包），
+            // 发行成功后本工具会自动发送 update_minter 撤销铸币与冻结权限
             msg = {
                 name: params.name,
                 symbol: params.symbol,
@@ -576,9 +581,6 @@ async function deployContract() {
         } else {
             throw new Error(t('errUnknownTemplate'));
         }
-
-        const chainId = await fetchChainId();
-        const { accountNumber, sequence } = await fetchAccountInfo(walletAddress);
 
         // ---- 1. 构建转账消息（手续费） ----
         const feeInPAXI = currentTemplate.fee;
@@ -611,96 +613,35 @@ async function deployContract() {
             value: instantiateValue
         });
 
-        // ---- 3. 组合消息 ----
+        // ---- 3. 组合消息并签名广播（内部自动获取 chainId / sequence）----
         const messages = [anySend, anyInstantiate];
-
-        // ---- 4. TxBody ----
-        const txBody = PaxiCosmJS.TxBody.fromPartial({
-            messages: messages,
-            memo: `${label} | fee ${feeInPAXI} PAXI`
-        });
-
-        // ---- 5. Fee ----
         // gasLimit 需要足够覆盖 wasm instantiate 的开销（实测约 7000 万）
         const fee = {
             amount: [PaxiCosmJS.coins("10000000", DENOM)[0]],
             gasLimit: 150000000
         };
+        const memo = `${label} | fee ${feeInPAXI} PAXI`;
+        const txResponse = await signAndBroadcast(messages, memo, fee);
+        const txHash = txResponse.txhash;
 
-        // ---- 6. 公钥（使用连接时缓存的公钥，避免再次弹窗） ----
-        if (!walletPubkey) throw new Error(t('errPubkeyMissing'));
-        const pubkeyBytes = walletPubkey;
-        // 按官方 DApp 示例写法
-        const pubkeyAny = {
-            typeUrl: "/cosmos.crypto.secp256k1.PubKey",
-            value: PaxiCosmJS.PubKey.encode({ key: pubkeyBytes }).finish()
-        };
+        // ---- 4. 等待确认并解析合约地址 ----
+        const contractAddr = await waitContractAddress(txHash);
 
-        // ---- 7. AuthInfo ----
-        const authInfo = PaxiCosmJS.AuthInfo.fromPartial({
-            signerInfos: [{
-                publicKey: pubkeyAny,
-                modeInfo: { single: { mode: 1 } },
-                sequence: BigInt(sequence)
-            }],
-            fee: fee
-        });
-
-        // ---- 8. SignDoc ----
-        const signDoc = PaxiCosmJS.SignDoc.fromPartial({
-            bodyBytes: PaxiCosmJS.TxBody.encode(txBody).finish(),
-            authInfoBytes: PaxiCosmJS.AuthInfo.encode(authInfo).finish(),
-            chainId: chainId,
-            accountNumber: BigInt(accountNumber)
-        });
-
-        // ---- 9. 签名 ----
-        let bodyBytesForRaw = signDoc.bodyBytes;
-        let authInfoBytesForRaw = signDoc.authInfoBytes;
-
-        if (walletType === 'paxihub') {
-            const txObj = {
-                bodyBytes: toBase64(signDoc.bodyBytes),
-                authInfoBytes: toBase64(signDoc.authInfoBytes),
-                chainId: chainId,
-                accountNumber: signDoc.accountNumber.toString()
-            };
-            const signed = await window.paxihub.paxi.signAndSendTransaction(txObj);
-            if (!signed || !signed.success) throw new Error(t('errSignPaxihub'));
-            const sigBytes = Uint8Array.from(atob(signed.success), c => c.charCodeAt(0));
-
-            // ---- 10. TxRaw ----
-            const txRaw = PaxiCosmJS.TxRaw.fromPartial({
-                bodyBytes: bodyBytesForRaw,
-                authInfoBytes: authInfoBytesForRaw,
-                signatures: [sigBytes]
-            });
-            const txBytes = PaxiCosmJS.TxRaw.encode(txRaw).finish();
-            const base64Tx = toBase64(txBytes);
-            await broadcastTx(base64Tx, label, feeInPAXI, params);
-        } else if (walletType === 'keplr') {
-            const signer = window.keplr.getOfflineSigner(PREFIX);
-            const signed = await signer.signDirect(walletAddress, {
-                bodyBytes: signDoc.bodyBytes,
-                authInfoBytes: signDoc.authInfoBytes,
-                chainId: chainId,
-                accountNumber: signDoc.accountNumber
-            });
-            // 使用钱包实际签名时的 body/authInfo，保证签名与报文一致
-            bodyBytesForRaw = signed.signed.bodyBytes;
-            authInfoBytesForRaw = signed.signed.authInfoBytes;
-            const sigBytes = signed.signature;
-            const txRaw = PaxiCosmJS.TxRaw.fromPartial({
-                bodyBytes: bodyBytesForRaw,
-                authInfoBytes: authInfoBytesForRaw,
-                signatures: [sigBytes]
-            });
-            const txBytes = PaxiCosmJS.TxRaw.encode(txRaw).finish();
-            const base64Tx = toBase64(txBytes);
-            await broadcastTx(base64Tx, label, feeInPAXI, params);
-        } else {
-            throw new Error(t('errUnknownWallet'));
+        // ---- 5. 发币成功后自动撤销铸币/冻结权限（仅 PRC-20）----
+        let revokeStatus = 'none'; // none=不适用 / ok=已撤销 / fail=撤销失败
+        if (currentTemplate.id === 'prc20' && contractAddr) {
+            deployBtn.textContent = t('revokingBtn');
+            try {
+                await revokeTokenPermissions(contractAddr);
+                revokeStatus = 'ok';
+            } catch (revokeErr) {
+                console.error('自动撤销铸币/冻结权限失败:', revokeErr);
+                revokeStatus = 'fail';
+            }
         }
+
+        // ---- 6. 展示结果 ----
+        showDeployResult(contractAddr, txHash, feeInPAXI, params, revokeStatus);
     } catch (error) {
         console.error(error);
         alert(t('alertDeployFail') + error.message);
@@ -709,8 +650,81 @@ async function deployContract() {
     }
 }
 
-// 广播交易并展示结果
-async function broadcastTx(base64Tx, label, feeInPAXI, params) {
+// ============================================================
+// 通用签名广播：自动获取 chainId / account / sequence，
+// 支持 PaxiHub 与 Keplr 两种钱包，返回上链成功的 tx_response
+// ============================================================
+async function signAndBroadcast(messages, memo, fee) {
+    const chainId = await fetchChainId();
+    const { accountNumber, sequence } = await fetchAccountInfo(walletAddress);
+
+    // ---- TxBody ----
+    const txBody = PaxiCosmJS.TxBody.fromPartial({ messages, memo });
+
+    // ---- 公钥（使用连接时缓存的公钥，避免再次弹窗） ----
+    if (!walletPubkey) throw new Error(t('errPubkeyMissing'));
+    const pubkeyAny = {
+        typeUrl: "/cosmos.crypto.secp256k1.PubKey",
+        value: PaxiCosmJS.PubKey.encode({ key: walletPubkey }).finish()
+    };
+
+    // ---- AuthInfo ----
+    const authInfo = PaxiCosmJS.AuthInfo.fromPartial({
+        signerInfos: [{
+            publicKey: pubkeyAny,
+            modeInfo: { single: { mode: 1 } },
+            sequence: BigInt(sequence)
+        }],
+        fee: fee
+    });
+
+    // ---- SignDoc ----
+    const signDoc = PaxiCosmJS.SignDoc.fromPartial({
+        bodyBytes: PaxiCosmJS.TxBody.encode(txBody).finish(),
+        authInfoBytes: PaxiCosmJS.AuthInfo.encode(authInfo).finish(),
+        chainId: chainId,
+        accountNumber: BigInt(accountNumber)
+    });
+
+    // ---- 签名 ----
+    let bodyBytes = signDoc.bodyBytes;
+    let authInfoBytes = signDoc.authInfoBytes;
+    let sigBytes;
+
+    if (walletType === 'paxihub') {
+        const txObj = {
+            bodyBytes: toBase64(signDoc.bodyBytes),
+            authInfoBytes: toBase64(signDoc.authInfoBytes),
+            chainId: chainId,
+            accountNumber: signDoc.accountNumber.toString()
+        };
+        const signed = await window.paxihub.paxi.signAndSendTransaction(txObj);
+        if (!signed || !signed.success) throw new Error(t('errSignPaxihub'));
+        sigBytes = Uint8Array.from(atob(signed.success), c => c.charCodeAt(0));
+    } else if (walletType === 'keplr') {
+        const signer = window.keplr.getOfflineSigner(PREFIX);
+        const signed = await signer.signDirect(walletAddress, {
+            bodyBytes: signDoc.bodyBytes,
+            authInfoBytes: signDoc.authInfoBytes,
+            chainId: chainId,
+            accountNumber: signDoc.accountNumber
+        });
+        // 使用钱包实际签名时的 body/authInfo，保证签名与报文一致
+        bodyBytes = signed.signed.bodyBytes;
+        authInfoBytes = signed.signed.authInfoBytes;
+        sigBytes = signed.signature;
+    } else {
+        throw new Error(t('errUnknownWallet'));
+    }
+
+    // ---- TxRaw & 广播 ----
+    const txRaw = PaxiCosmJS.TxRaw.fromPartial({
+        bodyBytes: bodyBytes,
+        authInfoBytes: authInfoBytes,
+        signatures: [sigBytes]
+    });
+    const base64Tx = toBase64(PaxiCosmJS.TxRaw.encode(txRaw).finish());
+
     const broadcastRes = await fetch(`${LCD}/cosmos/tx/v1beta1/txs`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -729,10 +743,11 @@ async function broadcastTx(base64Tx, label, feeInPAXI, params) {
     if (txResponse.code !== 0) {
         throw new Error(t('errTxFail', txResponse.code, txResponse.raw_log || txResponse.codespace || ''));
     }
-    const txHash = txResponse.txhash;
+    return txResponse;
+}
 
-    // ---- 等待确认并解析合约地址 ----
-    let contractAddr = null;
+// 轮询交易确认并从 instantiate 事件解析合约地址（超时返回 null）
+async function waitContractAddress(txHash) {
     for (let i = 0; i < 10; i++) {
         await sleep(2000);
         const txRes = await fetch(`${LCD}/cosmos/tx/v1beta1/txs/${txHash}`);
@@ -747,19 +762,53 @@ async function broadcastTx(base64Tx, label, feeInPAXI, params) {
             if (evt.type === 'instantiate') {
                 for (const attr of evt.attributes) {
                     if (attr.key === '_contract_address') {
-                        contractAddr = attr.value;
-                        break;
+                        return attr.value;
                     }
                 }
             }
-            if (contractAddr) break;
         }
-        if (contractAddr) break;
     }
+    return null;
+}
 
+// 发币后自动撤销铸币与冻结权限：
+// 官方 PRC-20（CW20 扩展）中 freeze/unfreeze 仅限 minter 调用，铸币与冻结同属 minter 权限，
+// 因此发送 {"update_minter":{"new_minter":null}} 一笔交易即可永久撤销两种权限
+async function revokeTokenPermissions(contractAddr) {
+    const msgObj = { update_minter: { new_minter: null } };
+    const execMsg = PaxiCosmJS.MsgExecuteContract.fromPartial({
+        sender: walletAddress,
+        contract: contractAddr,
+        msg: new TextEncoder().encode(JSON.stringify(msgObj))
+    });
+    const anyExec = PaxiCosmJS.Any.fromPartial({
+        typeUrl: "/cosmwasm.wasm.v1.MsgExecuteContract",
+        value: PaxiCosmJS.MsgExecuteContract.encode(execMsg).finish()
+    });
+    // 官方 DApp 指南建议：execute 交易 fees 30000upaxi / gas 60 万
+    const fee = {
+        amount: [PaxiCosmJS.coins("30000", DENOM)[0]],
+        gasLimit: 600000
+    };
+    await signAndBroadcast([anyExec], `revoke minter ${contractAddr}`, fee);
+}
+
+// 展示部署结果
+function showDeployResult(contractAddr, txHash, feeInPAXI, params, revokeStatus) {
     const resultDiv = document.getElementById('result');
     resultDiv.style.display = 'block';
     if (contractAddr) {
+        // 铸币/冻结权限撤销状态行（仅 PRC-20 且拿到合约地址时显示）
+        let revokeLine = '';
+        if (revokeStatus === 'ok') {
+            revokeLine = `<strong>${escapeHtml(t('resultRevokeLabel'))}</strong>✅ ${escapeHtml(t('resultRevokeOk'))}<br>`;
+        } else if (revokeStatus === 'fail') {
+            revokeLine = `<strong>${escapeHtml(t('resultRevokeLabel'))}</strong>⚠️ ${escapeHtml(t('resultRevokeFail'))}<br>`;
+        }
+        // 撤销成功后 minter 已永久销毁，说明文案随之变化
+        const minterSuffix = (revokeStatus === 'ok')
+            ? escapeHtml(t('resultMinterRevokedSuffix'))
+            : escapeHtml(t('resultMinterSuffix'));
         // 所有动态值都经过 escapeHtml 转义，防止 XSS
         resultDiv.innerHTML = `
             ${escapeHtml(t('resultSuccessTitle'))}<br>
@@ -768,7 +817,8 @@ async function broadcastTx(base64Tx, label, feeInPAXI, params) {
             <strong>${escapeHtml(t('resultTotalSupply'))}</strong>${escapeHtml(params.total_supply || 'N/A')}${escapeHtml(t('resultTotalSupplySuffix'))}<br>
             <strong>${escapeHtml(t('resultFee'))}</strong>${escapeHtml(feeInPAXI)}${escapeHtml(t('resultFeeSuffix'))}<br>
             <strong>${escapeHtml(t('resultLogoUrl'))}</strong>${escapeHtml(params.logo_url || t('resultNoLogo'))}<br>
-            <strong>${escapeHtml(t('resultMinter'))}</strong><code>${escapeHtml(walletAddress)}</code>${escapeHtml(t('resultMinterSuffix'))}
+            <strong>${escapeHtml(t('resultMinter'))}</strong><code>${escapeHtml(walletAddress)}</code>${minterSuffix}<br>
+            ${revokeLine}
         `;
     } else {
         resultDiv.innerHTML = `
