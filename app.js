@@ -5,6 +5,8 @@ const RPC = 'https://mainnet-rpc.paxinet.io';
 const LCD = 'https://mainnet-lcd.paxinet.io';
 const DENOM = 'upaxi';
 const PREFIX = 'paxi';
+// PRC-20 代币精度：官方发射平台固定为 6，不可修改（前端不显示该输入项）
+const PRC20_DECIMALS = 6;
 
 // ImgBB 图床 API Key（两个 key 轮询使用，一个失败自动重试另一个）
 const IMGBB_API_KEYS = [
@@ -568,9 +570,6 @@ async function deployContract() {
         if (currentTemplate.id === 'prc20') {
             if (!params.name) throw new Error(t('errNameRequired'));
             if (!params.symbol) throw new Error(t('errSymbolRequired'));
-            if (!Number.isFinite(params.decimals) || params.decimals < 0 || params.decimals > 36) {
-                throw new Error(t('errDecimalsRange'));
-            }
             if (!Number.isFinite(params.total_supply) || params.total_supply <= 0) {
                 throw new Error(t('errTotalSupplyPositive'));
             }
@@ -598,8 +597,8 @@ async function deployContract() {
         // 构建合约初始化消息
         let msg = {};
         if (currentTemplate.id === 'prc20') {
-            // 用 BigInt 计算避免浮点精度丢失
-            const amount = calculateAmount(params.total_supply, params.decimals);
+            // 用 BigInt 计算避免浮点精度丢失（精度固定 PRC20_DECIMALS = 6）
+            const amount = calculateAmount(params.total_supply, PRC20_DECIMALS);
             const initial_balances = [{ address: walletAddress, amount: amount }];
             // 项目名称与网站网址已合并为一个字段（project），统一填项目官网地址
             const marketing = {
@@ -613,7 +612,7 @@ async function deployContract() {
             msg = {
                 name: params.name,
                 symbol: params.symbol,
-                decimals: params.decimals,
+                decimals: PRC20_DECIMALS,
                 initial_balances: initial_balances,
                 mint: { minter: walletAddress },
                 marketing: marketing

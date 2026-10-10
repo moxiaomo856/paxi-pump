@@ -55,7 +55,6 @@
             fields: {
                 name: '代币名称',
                 symbol: '代币符号',
-                decimals: '小数位数',
                 total_supply: '总发行量（单位：枚）',
                 project: '项目名称（填写网址）',
                 description: '代币描述',
@@ -150,7 +149,6 @@
             fields: {
                 name: 'Token Name',
                 symbol: 'Token Symbol',
-                decimals: 'Decimals',
                 total_supply: 'Total Supply (units)',
                 project: 'Project Name (URL)',
                 description: 'Token Description',
