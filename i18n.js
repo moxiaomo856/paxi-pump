@@ -27,8 +27,8 @@
     // ============================================================
     const STRINGS = {
         zh: {
-            pageTitle: 'Paxi 合约一键部署',
-            pageHeading: '🚀 Paxi 合约一键部署',
+            pageTitle: '🚀 Paxi Pump',
+            pageHeading: '🚀 Paxi Pump',
             langToggleLabel: 'EN',
             langToggleTitle: '切换到英文',
             walletDisconnected: '未连接',
@@ -36,9 +36,9 @@
             connectBtn: '连接钱包',
             connectedBtn: '已连接',
             templateLabel: '选择模板',
-            feeLabel: '部署费用',
+            feeLabel: '预估手续费',
             feeUnit: ' PAXI',
-            deployBtn: '部署合约',
+            deployBtn: '🚀 创建代币',
             deployingBtn: '部署中...',
             revokingBtn: '撤销权限中...',
             templateLoadFail: '模板加载失败',
@@ -62,10 +62,21 @@
                 logo_url: 'Logo URL（必填）',
                 minter: '铸造者地址'
             },
+            // 仿官方风格：placeholder 当标题
+            placeholders: {
+                name: '代币名称',
+                symbol: '代币符号（例如 PAXI）',
+                project: '项目网址 https://…',
+                description: '代币描述'
+            },
+            // 模板下拉框选项名称（key 与 templates.json 的 id 对应）
+            templates: {
+                prc20: 'PRC-20 同质化代币',
+                prc721: 'PRC-721 NFT 藏品'
+            },
             // logo_url 输入框 placeholder
-            logoUrlPlaceholder: '可直接填 URL，或点击右侧「上传图片」按钮自动生成',
+            logoUrlPlaceholder: '或粘贴图片链接（https://…）',
             // 上传按钮
-            uploadImageBtn: '📷 上传图片',
             uploadingBtn: '上传中...',
             // 部署结果
             resultSuccessTitle: '✅ 代币发行成功！',
@@ -112,8 +123,8 @@
             templateLabelText: '选择模板'
         },
         en: {
-            pageTitle: 'Paxi Contract One-Click Deploy',
-            pageHeading: '🚀 Paxi Contract Deploy',
+            pageTitle: '🚀 Paxi Pump',
+            pageHeading: '🚀 Paxi Pump',
             langToggleLabel: '中文',
             langToggleTitle: 'Switch to Chinese',
             walletDisconnected: 'Not connected',
@@ -121,9 +132,9 @@
             connectBtn: 'Connect Wallet',
             connectedBtn: 'Connected',
             templateLabel: 'Select Template',
-            feeLabel: 'Deploy Fee',
+            feeLabel: 'Estimated Fee',
             feeUnit: ' PAXI',
-            deployBtn: 'Deploy Contract',
+            deployBtn: '🚀 Create Token',
             deployingBtn: 'Deploying...',
             revokingBtn: 'Revoking permissions...',
             templateLoadFail: 'Failed to load templates',
@@ -146,8 +157,19 @@
                 logo_url: 'Logo URL (required)',
                 minter: 'Minter Address'
             },
-            logoUrlPlaceholder: 'Enter a URL directly, or click "Upload Image" on the right',
-            uploadImageBtn: '📷 Upload Image',
+            // Official-style: placeholder as title
+            placeholders: {
+                name: 'Token Name',
+                symbol: 'Token Symbol (e.g. PAXI)',
+                project: 'Project URL https://…',
+                description: 'Token Description'
+            },
+            // Template dropdown option names (key matches templates.json id)
+            templates: {
+                prc20: 'PRC-20 Fungible Token',
+                prc721: 'PRC-721 NFT Collection'
+            },
+            logoUrlPlaceholder: 'Or paste an image URL (https://…)',
             uploadingBtn: 'Uploading...',
             resultSuccessTitle: '✅ Token issued successfully!',
             resultContractAddr: 'Contract Address: ',

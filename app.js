@@ -296,6 +296,12 @@ document.getElementById('connectBtn').addEventListener('click', connectWallet);
 // ============================================================
 // 4. 加载模板
 // ============================================================
+// 模板名称按当前语言显示（templates.json 内是中文，英文走 i18n 字典）
+function getTemplateName(tpl) {
+    const translated = t('templates.' + tpl.id);
+    return (translated && translated !== 'templates.' + tpl.id) ? translated : (tpl.name || tpl.id);
+}
+
 async function loadTemplates() {
     try {
         const resp = await fetch('templates.json');
@@ -314,7 +320,7 @@ async function loadTemplates() {
     templates.forEach((tpl, i) => {
         const opt = document.createElement('option');
         opt.value = i;
-        opt.textContent = tpl.name;
+        opt.textContent = getTemplateName(tpl);
         select.appendChild(opt);
     });
     select.onchange = () => loadTemplate(select.value);
@@ -337,94 +343,107 @@ function loadTemplate(index) {
     currentTemplate = templates[idx];
     const container = document.getElementById('paramsArea');
     container.innerHTML = '';
+    // 仿官方 Paxi Pump 风格（仅 PRC-20 模板启用）：
+    // 用 placeholder 充当标题、显示字数计数器
+    const useOfficialStyle = currentTemplate.id === 'prc20';
+    const PLACEHOLDER_KEYS = ['name', 'symbol', 'project', 'description'];
+    const COUNTER_MAX = { name: 20, symbol: 6, project: 200, description: 255 };
+    // 相机图标（大方块上传框中央）
+    const CAMERA_SVG = '<svg viewBox="0 0 24 24" width="46" height="46" fill="none" stroke="#8f96a3" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8.5h3.2L9 6.5h6l1.8 2H20a1 1 0 0 1 1 1V19a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9.5a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.5" r="3.4"/><path d="M17.5 2.5v4M15.5 4.5h4"/></svg>';
+    let rowWrap = null; // decimals 与 total_supply 并排一行
+
     currentTemplate.params.forEach(p => {
         const div = document.createElement('div');
         div.className = 'form-group';
-        const label = document.createElement('label');
-        label.textContent = getParamLabel(p);
-        div.appendChild(label);
 
-        // logo_url 字段特殊处理：输入框 + 上传按钮 + 预览
+        // logo_url 字段：大方块上传框（仿官方）+ URL 输入框
         if (p.key === 'logo_url') {
-            const row = document.createElement('div');
-            row.className = 'logo-input-row';
-
-            const input = document.createElement('input');
-            input.type = 'text';
-            input.value = p.default || '';
-            input.id = `param_${p.key}`;
-            input.dataset.key = p.key;
-            input.placeholder = t('logoUrlPlaceholder');
-            row.appendChild(input);
-
-            const upBtn = document.createElement('button');
-            upBtn.type = 'button';
-            upBtn.className = 'logo-upload-btn';
-            upBtn.textContent = t('uploadImageBtn');
-            row.appendChild(upBtn);
+            const box = document.createElement('div');
+            box.className = 'logo-box';
 
             const fileInput = document.createElement('input');
             fileInput.type = 'file';
             fileInput.accept = 'image/*';
             fileInput.className = 'hidden-file';
 
-            // 预览区
-            const previewWrap = document.createElement('div');
-            previewWrap.className = 'logo-preview-wrap';
-            previewWrap.style.display = 'none';
             const previewImg = document.createElement('img');
-            previewImg.className = 'logo-preview-img';
-            previewImg.alt = 'Logo preview';
-            previewWrap.appendChild(previewImg);
+            previewImg.className = 'logo-cover';
+            previewImg.alt = '';
+            previewImg.style.display = 'none';
 
-            // 隐藏的图片预加载：用于用户填好 URL 时显示预览
-            if (p.default && /^https?:\/\//.test(p.default)) {
-                previewImg.src = p.default;
-                previewWrap.style.display = 'block';
+            const hint = document.createElement('div');
+            hint.className = 'logo-hint';
+            hint.innerHTML = CAMERA_SVG;
+
+            box.appendChild(previewImg);
+            box.appendChild(hint);
+
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.value = p.default || '';
+            input.id = `param_${p.key}`;
+            input.dataset.key = p.key;
+            input.className = 'logo-url-input';
+            input.placeholder = t('logoUrlPlaceholder');
+
+            // 有可预览的 http(s) URL 时满铺显示图片，否则显示相机图标
+            function setPreview(url) {
+                if (/^https?:\/\//.test(url)) {
+                    previewImg.src = url;
+                    previewImg.style.display = 'block';
+                    hint.style.display = 'none';
+                } else {
+                    previewImg.style.display = 'none';
+                    previewImg.src = '';
+                    hint.style.display = 'flex';
+                }
             }
+            setPreview((p.default || '').trim());
 
             // 手动改 URL 时刷新预览
             input.addEventListener('input', () => {
-                const url = input.value.trim();
-                if (/^https?:\/\//.test(url)) {
-                    previewImg.src = url;
-                    previewWrap.style.display = 'block';
-                    checkReady();
-                } else {
-                    previewWrap.style.display = 'none';
-                    previewImg.src = '';
-                    checkReady();
-                }
+                setPreview(input.value.trim());
+                checkReady();
             });
 
-            upBtn.addEventListener('click', () => fileInput.click());
+            // 点击大方块直接选图上传
+            box.addEventListener('click', () => {
+                if (!box.dataset.busy) fileInput.click();
+            });
 
             fileInput.addEventListener('change', async (ev) => {
                 const file = ev.target.files && ev.target.files[0];
                 if (!file) return;
-                const originalBtnText = upBtn.textContent;
-                upBtn.disabled = true;
-                upBtn.textContent = t('uploadingBtn');
+                box.dataset.busy = '1';
+                hint.innerHTML = `<span class="logo-uploading">${escapeHtml(t('uploadingBtn'))}</span>`;
                 try {
                     const imgUrl = await uploadToImgbb(file);
                     input.value = imgUrl;
-                    previewImg.src = imgUrl;
-                    previewWrap.style.display = 'block';
+                    setPreview(imgUrl);
                     input.dispatchEvent(new Event('input'));
                 } catch (e) {
                     alert(t('alertUploadFail') + e.message);
                 } finally {
-                    upBtn.disabled = false;
-                    upBtn.textContent = originalBtnText || t('uploadImageBtn');
+                    box.dataset.busy = '';
+                    hint.innerHTML = CAMERA_SVG;
                     // 清空 file input，允许再次选同一文件触发 change
                     fileInput.value = '';
                 }
             });
 
-            div.appendChild(row);
+            div.appendChild(box);
             div.appendChild(fileInput);
-            div.appendChild(previewWrap);
+            div.appendChild(input);
+            container.appendChild(div);
         } else {
+            // decimals 与 total_supply 并排一行
+            if (p.key === 'decimals') {
+                rowWrap = document.createElement('div');
+                rowWrap.className = 'param-row';
+                container.appendChild(rowWrap);
+            }
+            const parent = (p.key === 'total_supply' && rowWrap) ? rowWrap : container;
+
             let input;
             if (p.type === 'textarea') {
                 input = document.createElement('textarea');
@@ -436,12 +455,36 @@ function loadTemplate(index) {
             }
             input.id = `param_${p.key}`;
             input.dataset.key = p.key;
+
+            if (useOfficialStyle && PLACEHOLDER_KEYS.includes(p.key)) {
+                // 无 label，用 placeholder 当标题（仿官方）
+                const ph = t('placeholders.' + p.key);
+                input.placeholder = (ph && ph !== 'placeholders.' + p.key) ? ph : (p.label || '');
+            } else {
+                const label = document.createElement('label');
+                label.textContent = getParamLabel(p);
+                div.appendChild(label);
+            }
+
+            // 字数计数器 0/20、0/6、0/200、0/255
+            if (useOfficialStyle && COUNTER_MAX[p.key]) {
+                input.maxLength = COUNTER_MAX[p.key];
+                const counter = document.createElement('div');
+                counter.className = 'char-counter';
+                const updateCounter = () => {
+                    counter.textContent = `${String(input.value || '').length}/${COUNTER_MAX[p.key]}`;
+                };
+                input.addEventListener('input', updateCounter);
+                updateCounter();
+                div.appendChild(counter);
+            }
+
             // 输入变更时重新检查是否满足部署条件
             input.addEventListener('input', checkReady);
             input.addEventListener('change', checkReady);
             div.appendChild(input);
+            parent.appendChild(div);
         }
-        container.appendChild(div);
     });
     document.getElementById('feeAmount').textContent = currentTemplate.fee + t('feeUnit');
     if (walletAddress) replaceAddressPlaceholder();
@@ -472,6 +515,10 @@ function refreshCurrentTemplateUI() {
     if (!currentTemplate) return;
     const select = document.getElementById('templateSelect');
     const idx = select.value;
+    // 同步模板下拉框选项文案（切换语言时）
+    templates.forEach((tpl, i) => {
+        if (select.options[i]) select.options[i].textContent = getTemplateName(tpl);
+    });
     loadTemplate(idx);
     // 同步钱包栏按钮文案
     const connectBtn = document.getElementById('connectBtn');
